@@ -35,7 +35,7 @@ FROM ${BASE_IMAGE}
 
 # The Rigma release to install. Override to test an unreleased build:
 #   --build-arg RIGMA_SPEC="rigma[nvidia] @ git+https://github.com/IxMxAMAR/rigma@<ref>"
-ARG RIGMA_SPEC=rigma[nvidia]==0.12.0
+ARG RIGMA_SPEC=rigma[nvidia]==0.12.1
 
 # Set to 1 to add vLLM — the only honest CUDA path for Rigma on Linux today.
 # Costs several GB of image.

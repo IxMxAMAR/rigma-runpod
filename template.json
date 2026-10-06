@@ -30,7 +30,7 @@
     "RIGMA_AUTO_CALIBRATE": "0",
     "RIGMA_ENGINE": "llamacpp",
     "RIGMA_MODEL": "",
-    "RIGMA_VERSION": "0.12.0",
+    "RIGMA_VERSION": "0.12.1",
     "NVIDIA_DRIVER_CAPABILITIES": "all",
     "HF_HUB_DISABLE_XET": "1"
   },

@@ -26,7 +26,7 @@ set -euo pipefail
 log() { printf '[rigma-bootstrap] %s\n' "$*"; }
 die() { printf '[rigma-bootstrap] FATAL: %s\n' "$*" >&2; exit 2; }
 
-RIGMA_VERSION="${RIGMA_VERSION:-0.12.0}"
+RIGMA_VERSION="${RIGMA_VERSION:-0.12.1}"
 RIGMA_RUNPOD_REF="${RIGMA_RUNPOD_REF:-main}"
 RAW="https://raw.githubusercontent.com/IxMxAMAR/rigma-runpod/${RIGMA_RUNPOD_REF}"
 

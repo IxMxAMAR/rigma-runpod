@@ -22,7 +22,7 @@ on:
       rigma_spec:
         description: "PEP 508 spec for Rigma to install"
         required: false
-        default: "rigma[nvidia]==0.12.0"
+        default: "rigma[nvidia]==0.12.1"
 
 permissions:
   contents: read
