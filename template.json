@@ -36,8 +36,7 @@
   },
   "args": "{\"entrypoint\":[\"/bin/bash\",\"-c\"],\"cmd\":[\"curl -fsSL https://raw.githubusercontent.com/IxMxAMAR/rigma-runpod/main/bootstrap.sh -o /tmp/rigma-bootstrap.sh && exec bash /tmp/rigma-bootstrap.sh\"]}",
   "mounts": {
-    "persistent": {"path": "/workspace", "size": 100},
-    "network": {"volumeMountPath": "/workspace"}
+    "persistent": {"path": "/workspace", "size": 100}
   },
   "allowedCudaVersions": ["12.4", "12.5", "12.6", "12.7", "12.8", "12.9"],
   "startSsh": true,
@@ -83,9 +82,15 @@
     },
     "mounts.persistent": "TemplateMounts.persistent is {path,size} in the spec. 100 GB of container disk at /workspace; container disk is wiped when the pod stops.",
     "mounts.network": [
-      "DOCUMENTED, NOT OBSERVED: TemplateMounts.network exists in the spec, but",
-      "the live catalog shows no template using it, so its exact acceptance is",
-      "untested. The reliable path is to attach a network volume at POD creation",
+      "REJECTED BY THE LIVE API - OBSERVED, NOT INFERRED. Sending any `network`",
+      "key under `mounts` to POST /v2/templates returns 422:",
+      "  {\"detail\":\"Request validation failed.\",\"errors\":[\"$.mounts:",
+      "   additional properties 'network' not allowed\"],\"status\":422}",
+      "Both shapes were tried: the object form {\"volumeMountPath\": \"/workspace\"}",
+      "and the array form [{\"volumeId\": \"...\"}] taken from the runpod-migrate",
+      "reference. Both were refused with that same message, so `TemplateMounts`",
+      "accepts `persistent` only, and `mounts.network` is a POD-creation field",
+      "rather than a template field. Attach the volume at POD creation instead",
       "(--network-volume-id + --volume-mount-path /workspace), which is what the",
       "README's deploy steps do. A network volume is DC-locked: the pod must be",
       "created in the same data center."
