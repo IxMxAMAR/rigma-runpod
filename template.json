@@ -1,0 +1,104 @@
+{
+  "_what_this_is": [
+    "The Runpod template for Rigma, in the shape POST /v2/templates accepts.",
+    "Every field name and every constraint below was read from the live spec at",
+    "https://api.runpod.io/v2/openapi.json while writing this file — nothing here",
+    "is inferred from the console or from a blog post.",
+    "",
+    "DEFAULT PATH (no custom image). The template starts from Runpod's own",
+    "PyTorch image, which Runpod pre-caches on its hosts, and uses `args` — the",
+    "console's 'Container start command' — to run bootstrap.sh, which installs",
+    "Rigma and hands over to start.sh. Nothing to build, nothing to push, no",
+    "registry credentials to give Runpod.",
+    "",
+    "PREBUILT PATH. Build the image in this repo (or let .github/workflows/image.yml",
+    "build it), push it, and set `image` to that reference with the same `args`",
+    "removed (the image's CMD is already start.sh). Faster and fully pinned."
+  ],
+
+  "name": "Rigma (LLM agent UI, Vulkan/vLLM)",
+  "image": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
+  "category": "NVIDIA",
+  "disk": 20,
+  "ports": ["11500/http", "22/tcp"],
+  "env": {
+    "RIGMA_UI_PORT": "11500",
+    "RIGMA_HOST": "0.0.0.0",
+    "RIGMA_RUNPOD_BACKEND": "vulkan",
+    "RIGMA_MODELS_DIR": "/workspace/rigma/models",
+    "RIGMA_HOME": "/root/.rigma",
+    "RIGMA_AUTO_CALIBRATE": "0",
+    "RIGMA_ENGINE": "llamacpp",
+    "RIGMA_MODEL": "",
+    "RIGMA_VERSION": "0.12.0",
+    "NVIDIA_DRIVER_CAPABILITIES": "all",
+    "HF_HUB_DISABLE_XET": "1"
+  },
+  "args": "{\"entrypoint\":[\"/bin/bash\",\"-c\"],\"cmd\":[\"curl -fsSL https://raw.githubusercontent.com/IxMxAMAR/rigma-runpod/main/bootstrap.sh -o /tmp/rigma-bootstrap.sh && exec bash /tmp/rigma-bootstrap.sh\"]}",
+  "mounts": {
+    "persistent": {"path": "/workspace", "size": 100},
+    "network": {"volumeMountPath": "/workspace"}
+  },
+  "allowedCudaVersions": ["12.4", "12.5", "12.6", "12.7", "12.8", "12.9"],
+  "startSsh": true,
+  "startJupyter": false,
+  "serverless": false,
+  "public": false,
+
+  "_field_notes": {
+    "args": [
+      "The console's 'Container start command'. The spec accepts either a bare",
+      "shell string (treated as CMD and split into arguments) or this JSON form",
+      "with explicit entrypoint/cmd. The JSON form is used deliberately: it makes",
+      "the shell explicit instead of relying on how a bare string is split.",
+      "`exec` matters — this must become PID 1 so a pod stop (SIGTERM) reaches",
+      "uvicorn, whose finally block stops the engine.",
+      "Omit `args` entirely when using the prebuilt image: its CMD is already",
+      "start.sh."
+    ],
+    "ports": [
+      "11500/http is the UI. Runpod proxies a /http port at",
+      "https://<pod-id>-11500.proxy.runpod.net — HTTPS only, and it runs through",
+      "Cloudflare with a ~100s request cap, so a very long single request can 524.",
+      "22/tcp is SSH, which is how you exec into the pod.",
+      "PORTS AND ENV ARE SET AT CREATION: neither can be added to a running pod",
+      "without a reset. Declare them here."
+    ],
+    "env": {
+      "NVIDIA_DRIVER_CAPABILITIES": [
+        "UNVERIFIED, AND THE MOST LIKELY THING TO GO WRONG. Rigma's default",
+        "backend on an NVIDIA Linux card is Vulkan, and the NVIDIA Vulkan ICD",
+        "ships with the HOST driver — it is only mounted into the container when",
+        "the container is granted the `graphics` driver capability. No stock",
+        "Runpod template sets this (checked against the live catalog: every GPU",
+        "template has env {}), so the platform does not do it for you.",
+        "start.sh prints the ICD directory and Rigma's own probe result at boot,",
+        "so the pod log answers this in the first ten lines. If Vulkan enumerates",
+        "nothing, either set RIGMA_ENGINE=vllm with a CUDA image, or",
+        "RIGMA_RUNPOD_BACKEND=cpu for a deliberate CPU-only bench."
+      ],
+      "RIGMA_AUTO_CALIBRATE": "0 disables the hardware auto-tune sweep on first load. Set to 1 to let it tune; on a cold volume that adds minutes.",
+      "RIGMA_MODEL": "Empty starts the UI with no model loaded — pick one in the Models tab and it downloads, tunes and loads on demand. Set to a registry slug to download and load on start.",
+      "RIGMA_ENGINE": "llamacpp (Vulkan on NVIDIA Linux) or vllm. vLLM needs RIGMA_MODEL set to a HuggingFace repo id and a non-GGUF model, and refuses rather than falling back."
+    },
+    "mounts.persistent": "TemplateMounts.persistent is {path,size} in the spec. 100 GB of container disk at /workspace; container disk is wiped when the pod stops.",
+    "mounts.network": [
+      "DOCUMENTED, NOT OBSERVED: TemplateMounts.network exists in the spec, but",
+      "the live catalog shows no template using it, so its exact acceptance is",
+      "untested. The reliable path is to attach a network volume at POD creation",
+      "(--network-volume-id + --volume-mount-path /workspace), which is what the",
+      "README's deploy steps do. A network volume is DC-locked: the pod must be",
+      "created in the same data center."
+    ],
+    "disk": "20 GB container disk, matching Runpod's own PyTorch template. Rigma's engine is ~30 MiB; models belong on the volume.",
+    "allowedCudaVersions": "The base image is CUDA 12.4.1, and Runpod's own PyTorch 2.4.0 template allows 12.4-12.9, so this mirrors it. Omit to accept any version.",
+    "startJupyter": "false: Rigma is the service on this pod, and Jupyter would only add another public port to think about. Set true if you want it — the base image honors the convention, and 8888/http must then be in `ports`.",
+    "startSsh": "true: sshd is the control channel, and the base image honors the convention. Needs 22/tcp in `ports` (declared above)."
+  },
+
+  "_creation_calls": {
+    "rest_v2": "POST https://api.runpod.io/v2/templates with this object (minus the underscore-prefixed keys) and Authorization: Bearer $RUNPOD_API_KEY.",
+    "console": "Templates -> New Template, and paste the fields; `args` is the 'Container start command' box.",
+    "note": "The underscore-prefixed keys here are documentation. Strip them before sending: the spec's CreateTemplateRequest does not declare them."
+  }
+}

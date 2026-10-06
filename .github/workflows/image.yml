@@ -1,0 +1,99 @@
+name: image
+
+# Builds the prebuilt image, then PROVES it boots: the container is started and
+# the UI is polled until it answers. A green build that never ran the container
+# would only prove the Dockerfile parses.
+#
+# This is also the only real Linux check this deployment gets before a pod: the
+# development machine is Windows with no Docker and no NVIDIA GPU. GitHub's
+# ubuntu runner has Docker, so `docker build` and `docker run` here are the
+# first honest test of the image, of `rigma up --host 0.0.0.0`, and of the
+# committed UI bundle being served from an installed wheel rather than a source
+# tree. It cannot test the GPU: the runner has no NVIDIA device, so the Vulkan
+# ICD question is still answered on a real pod (see the README).
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      rigma_spec:
+        description: "PEP 508 spec for Rigma to install"
+        required: false
+        default: "rigma[nvidia]==0.12.0"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        # The Runpod PyTorch base is ~8 GB and the runner's root volume is
+        # tight; removing the preinstalled Android/.NET/GHC toolchains is the
+        # documented way to make room, and none of them are used here.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - name: Build the image
+        run: |
+          SPEC="${{ github.event.inputs.rigma_spec || 'rigma[nvidia]==0.12.0' }}"
+          echo "installing: $SPEC"
+          docker build --build-arg "RIGMA_SPEC=$SPEC" -t rigma-runpod:test .
+
+      - name: Boot it and prove the UI answers on the proxy port
+        run: |
+          set -x
+          docker run -d --name rigma -p 11500:11500 \
+            -e RIGMA_UI_PORT=11500 \
+            -e RIGMA_HOST=0.0.0.0 \
+            -e RIGMA_RUNPOD_BACKEND=cpu \
+            -e RIGMA_AUTO_CALIBRATE=0 \
+            rigma-runpod:test
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:11500/ -o /tmp/index.html; then ok=1; break; fi
+            sleep 5
+          done
+          echo "--- container log (tail) ---"
+          docker logs rigma 2>&1 | tail -60
+          if [ "$ok" != "1" ]; then
+            echo "::error::the UI never answered on 127.0.0.1:11500"
+            exit 1
+          fi
+          echo "--- served HTML (head) ---"
+          head -c 400 /tmp/index.html
+          grep -qi 'id="root"' /tmp/index.html \
+            || { echo "::error::the response is not Rigma's UI bundle"; exit 1; }
+          echo "the installed wheel served the committed UI bundle"
+
+      - name: Container log
+        if: always()
+        run: docker logs rigma 2>&1 | tail -100 || true
+
+      - name: Push to GHCR (tags only)
+        # Runs only on a v* tag, so a branch push can never publish an image.
+        # GITHUB_TOKEN is enough; no extra secret. The package inherits this
+        # repo's visibility, which is public, so a pod can pull it with no
+        # registry credentials.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMAGE="ghcr.io/${{ github.repository }}"
+          IMAGE="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          VERSION="${GITHUB_REF_NAME#v}"
+          docker tag rigma-runpod:test "$IMAGE:$VERSION"
+          docker tag rigma-runpod:test "$IMAGE:latest"
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:latest"
+          echo "pushed $IMAGE:$VERSION and $IMAGE:latest" >> "$GITHUB_STEP_SUMMARY"
