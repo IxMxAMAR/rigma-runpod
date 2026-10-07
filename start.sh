@@ -47,6 +47,14 @@ set -euo pipefail
 log() { printf '[rigma-runpod] %s\n' "$*"; }
 die() { printf '[rigma-runpod] FATAL: %s\n' "$*" >&2; exit 2; }
 
+# --- what is actually inside this image --------------------------------------
+# Two deploys were spent guessing whether a pod was running the release we
+# thought it was. The pod log could not answer, so the answer had to come from
+# the registry - and the registry was wrong, because the image had been built
+# with the previous release inside it. One import makes every future log answer
+# it, for the RUNNING server, which is the only version that matters.
+log "Rigma version: $(python3 -c 'import rigma; print(rigma.__version__)' 2>/dev/null || echo unknown)"
+
 # --- 0. base image startup ---------------------------------------------------
 if [ -x /start.sh ]; then
   log "chaining the base image's /start.sh (sshd, web terminal) in the background"

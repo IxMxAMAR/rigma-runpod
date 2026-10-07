@@ -73,6 +73,7 @@ jobs:
           have="$(docker run --rm --entrypoint python3 rigma-runpod:test \
                     -c 'import rigma; print(rigma.__version__)')"
           echo "spec: $SPEC / installed: rigma $have"
+          echo "HAVE=$have" >> "$GITHUB_ENV"
           case "$SPEC" in
             *"=="*)
               case "$SPEC" in
@@ -98,7 +99,13 @@ jobs:
             sleep 5
           done
           echo "--- container log (tail) ---"
-          docker logs rigma 2>&1 | tail -60
+          docker logs rigma 2>&1 | tee /tmp/container.log | tail -60
+          # The version the RUNNING server reports, not just the one on disk.
+          # start.sh prints it precisely so a pod log can settle "which release
+          # is this pod actually on", which is the question that cost two
+          # deploys. If that line ever stops appearing, this fails.
+          grep -q "Rigma version: $HAVE" /tmp/container.log \
+            || { echo "::error::the running server does not report rigma $HAVE"; exit 1; }
           if [ "$ok" != "1" ]; then
             echo "::error::the UI never answered on 127.0.0.1:11500"
             exit 1
