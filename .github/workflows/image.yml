@@ -61,10 +61,23 @@ jobs:
           SPEC="${{ github.event.inputs.rigma_spec }}"
           VLLM="${{ github.event.inputs.install_vllm }}"
           [ -z "$VLLM" ] && VLLM=0
+          VLLM_BASE=0
+          BASE_IMAGE="$(grep -oP '^ARG BASE_IMAGE=\K.*' Dockerfile)"
           # A `v<version>-cuda` tag is the CUDA variant of that same release:
           # identical Rigma, vLLM added. The suffix is stripped before it
           # becomes a spec, because `rigma==0.12.2-cuda` is not a version.
-          case "$GITHUB_REF_NAME" in *-cuda) VLLM=1 ;; esac
+          case "$GITHUB_REF_NAME" in
+            *-cuda)
+              VLLM=1
+              VLLM_BASE=1
+              # The vendor's own image for the vLLM pip resolves, whose CUDA
+              # toolkit therefore matches its wheels by construction. Installing
+              # a CUDA 13.0 vLLM into the CUDA 12.4 PyTorch base killed the
+              # engine core on the 5090 — see the VLLM_BASE comment in the
+              # Dockerfile.
+              BASE_IMAGE="vllm/vllm-openai:v0.31.0"
+              ;;
+          esac
           if [ -z "$SPEC" ]; then
             case "$GITHUB_REF" in
               refs/tags/v*) BASE="${GITHUB_REF_NAME#v}"; BASE="${BASE%-cuda}"
@@ -72,13 +85,15 @@ jobs:
               *) SPEC="$(grep -oP '^ARG RIGMA_SPEC=\K.*' Dockerfile)" ;;
             esac
           fi
-          echo "installing: $SPEC   (vllm=$VLLM)"
+          echo "installing: $SPEC   (vllm=$VLLM, vllm_base=$VLLM_BASE, base=$BASE_IMAGE)"
           echo "SPEC=$SPEC" >> "$GITHUB_ENV"
           echo "INSTALL_VLLM=$VLLM" >> "$GITHUB_ENV"
           echo "IMAGE_TAG=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           docker build \
             --build-arg "RIGMA_SPEC=$SPEC" \
             --build-arg "INSTALL_VLLM=$VLLM" \
+            --build-arg "VLLM_BASE=$VLLM_BASE" \
+            --build-arg "BASE_IMAGE=$BASE_IMAGE" \
             -t rigma-runpod:test .
 
       - name: The image must carry the Rigma we meant to install
@@ -108,6 +123,12 @@ jobs:
         run: |
           docker run --rm --entrypoint python3 rigma-runpod:test -c \
             'import vllm, torch; print("vllm", vllm.__version__, "| torch", torch.__version__, "| cuda", torch.version.cuda)'
+          # The toolkit and the wheels have to agree. A CUDA 13.0 torch inside a
+          # CUDA 12.4 toolkit is exactly what killed vLLM's engine core in its
+          # memory-profiling pass on the 5090, and nothing in a green build said
+          # so. Print both halves.
+          docker run --rm --entrypoint bash rigma-runpod:test -c \
+            'nvcc --version | tail -2; echo "CUDA_HOME=${CUDA_HOME:-unset}"'
 
       - name: Boot it and prove the UI answers on the proxy port
         run: |
