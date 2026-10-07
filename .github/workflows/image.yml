@@ -45,10 +45,43 @@ jobs:
           df -h /
 
       - name: Build the image
+        # The spec comes from the TAG on a tag build, never from a hardcoded
+        # fallback: v0.12.1 must install rigma==0.12.1, or the image lies about
+        # what it is. That fallback is exactly how the first :0.12.1 image
+        # shipped with rigma 0.12.0 inside it - a tag build passes no
+        # workflow_dispatch input, so `inputs.rigma_spec || '<hardcoded>'`
+        # silently took the hardcoded default. A branch build uses the
+        # Dockerfile's ARG default, so the version lives in one place, and a
+        # dispatch can still override for an unreleased spec.
         run: |
-          SPEC="${{ github.event.inputs.rigma_spec || 'rigma[nvidia]==0.12.0' }}"
+          SPEC="${{ github.event.inputs.rigma_spec }}"
+          if [ -z "$SPEC" ]; then
+            case "$GITHUB_REF" in
+              refs/tags/v*) SPEC="rigma[nvidia]==${GITHUB_REF_NAME#v}" ;;
+              *) SPEC="$(grep -oP '^ARG RIGMA_SPEC=\K.*' Dockerfile)" ;;
+            esac
+          fi
           echo "installing: $SPEC"
+          echo "SPEC=$SPEC" >> "$GITHUB_ENV"
           docker build --build-arg "RIGMA_SPEC=$SPEC" -t rigma-runpod:test .
+
+      - name: The image must carry the Rigma we meant to install
+        # A green build that booted the wrong version is the failure this
+        # workflow exists to prevent, and the boot step below cannot see it:
+        # 0.12.0 and 0.12.1 serve the same UI. So ask the image itself.
+        run: |
+          have="$(docker run --rm --entrypoint python3 rigma-runpod:test \
+                    -c 'import rigma; print(rigma.__version__)')"
+          echo "spec: $SPEC / installed: rigma $have"
+          case "$SPEC" in
+            *"=="*)
+              case "$SPEC" in
+                *"==$have"*) echo "the image carries rigma $have" ;;
+                *) echo "::error::image has rigma $have but the spec said $SPEC"
+                   exit 1 ;;
+              esac ;;
+            *) echo "unpinned spec - skipping the version assertion" ;;
+          esac
 
       - name: Boot it and prove the UI answers on the proxy port
         run: |
