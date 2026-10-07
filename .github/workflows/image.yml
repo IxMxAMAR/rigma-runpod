@@ -23,6 +23,10 @@ on:
         description: "PEP 508 spec for Rigma to install"
         required: false
         default: "rigma[nvidia]==0.12.2"
+      install_vllm:
+        description: "1 to install vLLM - the CUDA lane. A v*-cuda tag forces it."
+        required: false
+        default: "0"
 
 permissions:
   contents: read
@@ -31,7 +35,7 @@ permissions:
 jobs:
   build-and-boot:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -55,15 +59,27 @@ jobs:
         # dispatch can still override for an unreleased spec.
         run: |
           SPEC="${{ github.event.inputs.rigma_spec }}"
+          VLLM="${{ github.event.inputs.install_vllm }}"
+          [ -z "$VLLM" ] && VLLM=0
+          # A `v<version>-cuda` tag is the CUDA variant of that same release:
+          # identical Rigma, vLLM added. The suffix is stripped before it
+          # becomes a spec, because `rigma==0.12.2-cuda` is not a version.
+          case "$GITHUB_REF_NAME" in *-cuda) VLLM=1 ;; esac
           if [ -z "$SPEC" ]; then
             case "$GITHUB_REF" in
-              refs/tags/v*) SPEC="rigma[nvidia]==${GITHUB_REF_NAME#v}" ;;
+              refs/tags/v*) BASE="${GITHUB_REF_NAME#v}"; BASE="${BASE%-cuda}"
+                            SPEC="rigma[nvidia]==$BASE" ;;
               *) SPEC="$(grep -oP '^ARG RIGMA_SPEC=\K.*' Dockerfile)" ;;
             esac
           fi
-          echo "installing: $SPEC"
+          echo "installing: $SPEC   (vllm=$VLLM)"
           echo "SPEC=$SPEC" >> "$GITHUB_ENV"
-          docker build --build-arg "RIGMA_SPEC=$SPEC" -t rigma-runpod:test .
+          echo "INSTALL_VLLM=$VLLM" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          docker build \
+            --build-arg "RIGMA_SPEC=$SPEC" \
+            --build-arg "INSTALL_VLLM=$VLLM" \
+            -t rigma-runpod:test .
 
       - name: The image must carry the Rigma we meant to install
         # A green build that booted the wrong version is the failure this
@@ -83,6 +99,15 @@ jobs:
               esac ;;
             *) echo "unpinned spec - skipping the version assertion" ;;
           esac
+
+      - name: The CUDA lane must really be in there
+        # An `INSTALL_VLLM=1` that silently installed nothing gives a green
+        # image whose pod then dies with "vLLM is not installed". Ask the image,
+        # the same way the Rigma version is asked.
+        if: env.INSTALL_VLLM == '1'
+        run: |
+          docker run --rm --entrypoint python3 rigma-runpod:test -c \
+            'import vllm, torch; print("vllm", vllm.__version__, "| torch", torch.__version__, "| cuda", torch.version.cuda)'
 
       - name: Boot it and prove the UI answers on the proxy port
         run: |
@@ -154,9 +179,15 @@ jobs:
             | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           IMAGE="ghcr.io/${{ github.repository }}"
           IMAGE="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${IMAGE_TAG}"
           docker tag rigma-runpod:test "$IMAGE:$VERSION"
-          docker tag rigma-runpod:test "$IMAGE:latest"
           docker push "$IMAGE:$VERSION"
-          docker push "$IMAGE:latest"
-          echo "pushed $IMAGE:$VERSION and $IMAGE:latest" >> "$GITHUB_STEP_SUMMARY"
+          # :latest stays on the default image. A CUDA variant must not become
+          # the thing a bare `:latest` pod silently gets.
+          case "$VERSION" in
+            *-cuda) echo "pushed $IMAGE:$VERSION (CUDA variant; :latest untouched)" \
+                      >> "$GITHUB_STEP_SUMMARY" ;;
+            *) docker tag rigma-runpod:test "$IMAGE:latest"
+               docker push "$IMAGE:latest"
+               echo "pushed $IMAGE:$VERSION and $IMAGE:latest" >> "$GITHUB_STEP_SUMMARY" ;;
+          esac

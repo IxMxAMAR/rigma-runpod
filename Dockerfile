@@ -72,6 +72,8 @@ RUN python3 -c "import sys; assert sys.version_info[:2] >= (3, 11), sys.version"
 
 RUN if [ "${INSTALL_VLLM}" = "1" ]; then \
       python3 -m pip install --no-cache-dir vllm; \
+      python3 -c "import vllm, torch; print('vllm', vllm.__version__, \
+'| torch', torch.__version__, '| cuda', torch.version.cuda)"; \
     fi
 
 # --- the registry overlay source --------------------------------------------
