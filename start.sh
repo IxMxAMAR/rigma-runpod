@@ -53,7 +53,7 @@ die() { printf '[rigma-runpod] FATAL: %s\n' "$*" >&2; exit 2; }
 # the registry - and the registry was wrong, because the image had been built
 # with the previous release inside it. One import makes every future log answer
 # it, for the RUNNING server, which is the only version that matters.
-log "Rigma version: $(python3 -c 'import rigma; print(rigma.__version__)' 2>/dev/null || echo unknown)"
+log "Rigma version: $(python3 -c 'import rigma; print(rigma.__version__)' 2>/dev/null || echo unknown) (uvicorn $(python3 -c 'import uvicorn; print(uvicorn.__version__)' 2>/dev/null || echo unknown))"
 
 # --- 0. base image startup ---------------------------------------------------
 if [ -x /start.sh ]; then

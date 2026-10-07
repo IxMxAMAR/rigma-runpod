@@ -22,7 +22,7 @@ on:
       rigma_spec:
         description: "PEP 508 spec for Rigma to install"
         required: false
-        default: "rigma[nvidia]==0.12.1"
+        default: "rigma[nvidia]==0.12.2"
 
 permissions:
   contents: read
@@ -46,8 +46,8 @@ jobs:
 
       - name: Build the image
         # The spec comes from the TAG on a tag build, never from a hardcoded
-        # fallback: v0.12.1 must install rigma==0.12.1, or the image lies about
-        # what it is. That fallback is exactly how the first :0.12.1 image
+        # fallback: a v0.12.x tag must install rigma==0.12.x, or the image lies
+        # about what it is. That fallback is exactly how the first :0.12.1 image
         # shipped with rigma 0.12.0 inside it - a tag build passes no
         # workflow_dispatch input, so `inputs.rigma_spec || '<hardcoded>'`
         # silently took the hardcoded default. A branch build uses the
@@ -115,6 +115,29 @@ jobs:
           grep -qi 'id="root"' /tmp/index.html \
             || { echo "::error::the response is not Rigma's UI bundle"; exit 1; }
           echo "the installed wheel served the committed UI bundle"
+
+          # The Runpod case, exactly. Its edge rewrites Host to the pod's own
+          # CGNAT address, and that is NOT the address the connection arrived
+          # on - here it arrives on 127.0.0.1. Rigma 0.12.1 refused this on a
+          # live pod while the pod's own log showed the release was deployed,
+          # because it compared Host against scope["server"]; 0.12.2 admits a
+          # private literal on the Host alone. Every earlier version of this
+          # workflow passed while the real deployment 403'd, so this is the
+          # assertion that was missing.
+          curl -fsS -H "Host: 100.65.31.217:11500" http://127.0.0.1:11500/ \
+            -o /tmp/proxy.html \
+            || { echo "::error::a proxy that rewrites Host to a CGNAT address was refused"; exit 1; }
+          grep -qi 'id="root"' /tmp/proxy.html \
+            || { echo "::error::the proxied response is not Rigma's UI bundle"; exit 1; }
+          echo "a rewritten Host is admitted - the shape Runpod's edge sends"
+
+          # ...and the guard still does its job: an attacker's NAME is refused
+          # even when it is the Host the proxy would have set.
+          code="$(curl -s -o /dev/null -w '%{http_code}' \
+                    -H "Host: rigma.evil.example" http://127.0.0.1:11500/)"
+          [ "$code" = "403" ] \
+            || { echo "::error::a rebound name got $code, expected 403"; exit 1; }
+          echo "a rebound name is still refused with 403"
 
       - name: Container log
         if: always()

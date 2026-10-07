@@ -109,7 +109,7 @@ in which llama.cpp uses CUDA on this platform today.
 | `RIGMA_MODEL` | *(empty)* | empty starts the UI with no model; pick one in the Models tab and it downloads, tunes and loads on demand. Otherwise a registry slug (llamacpp) or a HuggingFace repo id (vllm) |
 | `RIGMA_MODELS_DIR` | `/workspace/rigma/models` | where weights go. `start.sh` symlinks `$RIGMA_HOME/models` here |
 | `RIGMA_AUTO_CALIBRATE` | `0` in the template | `0` disables the hardware auto-tune sweep on first load; `1` lets it tune, which adds minutes on a cold volume |
-| `RIGMA_VERSION` | `0.12.1` | path A only: the Rigma release to install |
+| `RIGMA_VERSION` | `0.12.2` | path A only: the Rigma release to install |
 | `RIGMA_RUNPOD_REF` | `main` | path A only: the ref `bootstrap.sh` fetches `start.sh` from |
 | `NVIDIA_DRIVER_CAPABILITIES` | `all` | see above — the ICD question |
 
@@ -132,8 +132,8 @@ account.
 ## Building the image (path B)
 
 ```bash
-docker build -t rigma-runpod:0.12.1 .
-docker run --rm -p 11500:11500 -e RIGMA_RUNPOD_BACKEND=cpu rigma-runpod:0.12.1
+docker build -t rigma-runpod:0.12.2 .
+docker run --rm -p 11500:11500 -e RIGMA_RUNPOD_BACKEND=cpu rigma-runpod:0.12.2
 ```
 
 `.github/workflows/image.yml` does this on every push and, on a `v*` tag, pushes
